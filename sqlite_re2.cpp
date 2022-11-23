@@ -23,16 +23,40 @@ extern "C" SQLITE_EXTENSION_ENTRY_POINT int sqlite3_re2_init(
     const sqlite3_api_routines *pApi);
 
 
+void free_re2(void *p) {
+    delete (re2::RE2 *)p;
+}
+
 static void re2_consumeN(
     sqlite3_context *context,
     int argc,
     sqlite3_value **argv)
 {
     assert(argc == 2);
-    int non_null = 0;
+    int non_null = 0; // this means we have a non-null json value 
+    int save_context=0; // if this is 1, then call sqlite3_set_auxdata
+
+    if (sqlite3_value_type(argv[0]) == SQLITE_NULL ||
+        sqlite3_value_type(argv[1]) == SQLITE_NULL) {
+            sqlite3_result_null(context);
+            return;
+        }
 
     // TODO: put in soundness check on the re
-    re2::RE2 re(reinterpret_cast<const char *>(sqlite3_value_text(argv[0])));
+    // TODO: argument caching (other than using auxdata)
+    // use sqlite3_get_auxdata at the start and
+    // sqlite3_set_auxdata at the end of the function
+    // as per https://www.sqlite.org/c3ref/get_auxdata.html
+
+    re2::RE2 *re_p = (re2::RE2 *)sqlite3_get_auxdata(context,0);
+    if (re_p == nullptr) {
+        re_p = new re2::RE2(reinterpret_cast<const char *>(sqlite3_value_text(argv[0])));
+        if (!re_p->ok()){
+            cerr << "regexp error" << re_p->error();
+            // TODO: set error return
+        }
+        save_context=1;
+    }
 
     // TODO: check that this is not null or malformed
     // We keep track of original_input so that we can calculate offsets of matches from the
@@ -40,7 +64,7 @@ static void re2_consumeN(
     re2::StringPiece original_input = (reinterpret_cast<const char *>(sqlite3_value_text(argv[1])));
     re2::StringPiece input(original_input);
 
-    int groupSize = re.NumberOfCapturingGroups();
+    int groupSize = re_p->NumberOfCapturingGroups();
     assert(groupSize > 0 && groupSize < 1000); // arbitrary limit
 
     // copied from example code snippet
@@ -58,8 +82,8 @@ static void re2_consumeN(
     // maybe 'header' (array of CapturingGroupNames), 'body' (array of dicts) and 'offsets' (array of array of tuples)
     nlohmann::ordered_json retval;
 
-    auto group_name_map = re.CapturingGroupNames(); // see if this is zero or one based
-    while (re2::RE2::FindAndConsumeN(&input, re, &(args_re2[0]), groupSize))
+    auto group_name_map = re_p->CapturingGroupNames(); // see if this is zero or one based
+    while (re2::RE2::FindAndConsumeN(&input, *re_p, &(args_re2[0]), groupSize))
     {
         // xref https://github.com/google/re2/issues/24#issuecomment-97653183
         // cout << group_name_map[i+1] <<"="<<  << "pos=" << ws_re2[i].data() - original_input.data() << "len=" << ws_re2[i].size() << endl;
@@ -94,6 +118,12 @@ static void re2_consumeN(
         sqlite3_result_null(context);
     }
 
+    if (save_context==1){
+        // make sure to only set this the first time around as 
+        // "After each call to sqlite3_set_auxdata(C,N,P,X) where X is not NULL, SQLite will invoke the destructor 
+        //  function X with parameter P exactly once, when the metadata is discarded.""
+        sqlite3_set_auxdata(context, 0, re_p, free_re2);
+    } 
     return;
 }
 
