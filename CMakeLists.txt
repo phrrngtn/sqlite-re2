@@ -8,5 +8,5 @@ include_directories(${SQLITE_INCLUDE_DIR})
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(re2 CONFIG REQUIRED)
 
-add_library(sqlite_re2 SHARED sqlite_re2.cpp)
-target_link_libraries(sqlite_re2 PUBLIC re2::re2)
+add_library(jsonre2 SHARED sqlite_re2.cpp)
+target_link_libraries(jsonre2 PUBLIC re2::re2)

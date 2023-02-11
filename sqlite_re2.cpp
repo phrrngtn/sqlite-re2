@@ -17,7 +17,7 @@ SQLITE_EXTENSION_INIT1
 
 using namespace std;
 
-extern "C" SQLITE_EXTENSION_ENTRY_POINT int sqlite3_re2_init(
+extern "C" SQLITE_EXTENSION_ENTRY_POINT int sqlite3_jsonre2_init(
     sqlite3 *db,
     char **pzErrMsg,
     const sqlite3_api_routines *pApi);
@@ -128,7 +128,7 @@ static void re2_consumeN(
 }
 
 
-int sqlite3_re2_init(
+int sqlite3_jsonre2_init(
     sqlite3 *db,
     char **pzErrMsg,
     const sqlite3_api_routines *pApi)
