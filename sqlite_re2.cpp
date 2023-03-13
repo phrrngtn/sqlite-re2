@@ -17,6 +17,9 @@ SQLITE_EXTENSION_INIT1
 
 using namespace std;
 
+#define RETURN_AS_DICT 0
+#define RETURN_AS_MATCH_DICT 1
+
 extern "C" SQLITE_EXTENSION_ENTRY_POINT int sqlite3_jsonre2_init(
     sqlite3 *db,
     char **pzErrMsg,
@@ -28,6 +31,7 @@ void free_re2(void *p) {
 }
 
 static void re2_consumeN(
+    int result_style,
     sqlite3_context *context,
     int argc,
     sqlite3_value **argv)
@@ -88,6 +92,8 @@ static void re2_consumeN(
         // xref https://github.com/google/re2/issues/24#issuecomment-97653183
         // cout << group_name_map[i+1] <<"="<<  << "pos=" << ws_re2[i].data() - original_input.data() << "len=" << ws_re2[i].size() << endl;
 
+        // xref https://stackoverflow.com/a/11921117/40387
+
         nlohmann::ordered_json j;
         non_null = 1;
         for (int i = 0; i < groupSize; ++i)
@@ -101,8 +107,34 @@ static void re2_consumeN(
             {
                 jv = ws_re2[i];
             }
-
-            j[group_name_map[i + 1]] = jv; // XXX: is group capture map 1-based?
+            switch (result_style){
+                case RETURN_AS_DICT:
+                    j[group_name_map[i + 1]] = jv; // XXX: is group capture map 1-based?
+                    break;
+                case RETURN_AS_MATCH_DICT:
+                    j["match_group_name"]  = group_name_map[i + 1];
+                    j["match_value"] = jv;
+                    // xref: https://www.sqlite.org/lang_corefunc.html#substr
+                    // "The substr(X,Y,Z) function returns a substring of input string X that begins
+                    //  with the Y-th character and which is Z characters long. If Z is omitted then substr(X,Y) returns 
+                    //  all characters through the end of the string X beginning with the Y-th.
+                    //  The left-most character of X is number 1"
+                    
+            
+                    j["match_start"] = (jv == nullptr) ? -1 : 
+                          ws_re2[i].data()
+                        - original_input.data()
+                        + 1; // we want to be easily usable from sqlite substring()
+                    j["match_end"]   = (jv == nullptr) ? -1 : 
+                          ws_re2[i].data() 
+                        - original_input.data()
+                        + ws_re2[i].size()
+                        + 1;
+                    j["match_length"] = ws_re2[i].size(); // for sqlite substring()
+                    break;
+                default:
+                    assert(0);           
+            }
         }
         retval.push_back(j); 
     }
@@ -127,6 +159,21 @@ static void re2_consumeN(
     return;
 }
 
+static void re2_consumeN_dict(
+    sqlite3_context *context,
+    int argc,
+    sqlite3_value **argv)
+{
+    re2_consumeN(RETURN_AS_DICT, context, argc, argv);
+}
+
+static void re2_consumeN_match(
+    sqlite3_context *context,
+    int argc,
+    sqlite3_value **argv)
+{
+    re2_consumeN(RETURN_AS_MATCH_DICT, context, argc, argv);
+}
 
 int sqlite3_jsonre2_init(
     sqlite3 *db,
@@ -139,6 +186,9 @@ int sqlite3_jsonre2_init(
 
     rc = sqlite3_create_function(db, "re2_consume", 2,
                                  SQLITE_UTF8 | SQLITE_DETERMINISTIC,
-                                 0, re2_consumeN, 0, 0);
+                                 0, re2_consumeN_dict, 0, 0);
+    rc = sqlite3_create_function(db, "re2_consume_returning_match", 2,
+                                 SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+                                 0, re2_consumeN_match, 0, 0);                                 
     return rc;
 }

@@ -35,7 +35,35 @@ select json_group_array(je.value)  FROM pragma_function_list,  json_each(re2_con
 [{"foo":"concat"},{"foo":"concat"},{"foo":"patch"},{"foo":"date"},{"foo":"format"},{"foo":"datetime"},{"foo":"date"},{"foo":"rate_limit"},{"foo":"matchinfo"},{"foo":"matchinfo"},{"foo":"match"},{"foo":"template_render"},{"foo":"template_render"},{"foo":"date"}]
 ```
 
+There is also a variant, `re2_consume_returning_match` which returns a match dict inspired by
+the Python `re` module with keys of:
+  * `match_group_name`
+  * `match_value`
+  * `match_start`
+  * `match_end`
+  * `match_length`
 
+```sql
+ WITH T AS (
+   select name as function_name,
+          re2_consume_returning_match('[a-z]+(?P<foo>at\S*)',name) as res
+     FROM pragma_function_list
+ ) SELECT * FROM T where res is not null LIMIT 5;
+
+ function_name|res
+group_concat|[{"match_group_name":"foo","match_value":"at","match_start":11,"match_end":13,"match_length":2}]
+group_concat|[{"match_group_name":"foo","match_value":"at","match_start":11,"match_end":13,"match_length":2}]
+json_patch|[{"match_group_name":"foo","match_value":"atch","match_start":7,"match_end":11,"match_length":4}]
+date|[{"match_group_name":"foo","match_value":"ate","match_start":2,"match_end":5,"match_length":3}]
+format|[{"match_group_name":"foo","match_value":"at","match_start":5,"match_end":7,"match_length":2}]
+
+```
+I hope to add in other variants over time that use specialized json schemas such as a two-key
+dict with keys 
+
+`header` (value being a list of column names) 
+
+`body` (value an array of arrays)
 
 Building
 ========
